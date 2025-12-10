@@ -16,7 +16,17 @@ dotenv.config();
 // Initialize Express app
 const app = express();
 app.use(morgan('dev'));
-app.use(cors());
+
+// CORS Configuration - Allow all origins
+const corsOptions = {
+  origin: '*', // Allow all origins
+  credentials: false, // Must be false when origin is '*'
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id', 'X-File-Name'],
+  exposedHeaders: ['X-File-Name']
+};
+
+app.use(cors(corsOptions));
 
 // Middleware
 app.use(express.json());
@@ -26,6 +36,16 @@ app.use(express.urlencoded({ extended: true }));
 connectDB().catch(err => {
   console.warn('⚠️  MongoDB connection warning:', err.message);
   console.warn('⚠️  Server will continue to run, but database features may not work.');
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || 'development'
+  });
 });
 
 // Routes
@@ -42,9 +62,18 @@ app.use((err, req, res, next) => {
   });
   
   // Start server
-  const PORT = process.env.PORT || 3000;
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server is running on port ${PORT}`);
-    console.log(`Local: http://localhost:${PORT}`);
-    // console.log(`Network: http://172.18.108.239:${PORT}`);
+  const PORT = process.env.PORT || 5000;
+  const HOST = process.env.HOST || '0.0.0.0';
+  
+  app.listen(PORT, HOST, () => {
+    console.log(`🚀 Server is running on port ${PORT}`);
+    console.log(`📍 Local: http://localhost:${PORT}`);
+    console.log(`🌐 Network: http://${HOST}:${PORT}`);
+    console.log(`📡 API Base URL: http://${HOST}:${PORT}/api/v1`);
+    
+    // Log environment info
+    console.log(`\n📋 Environment Info:`);
+    console.log(`   - Node Version: ${process.version}`);
+    console.log(`   - MongoDB URI: ${process.env.MONGO_URI ? '✅ Set' : '❌ Not set'}`);
+    console.log(`   - JWT Secret: ${process.env.JWT_SECRET ? '✅ Set' : '❌ Not set'}`);
   });
