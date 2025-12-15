@@ -110,10 +110,13 @@ const CaseController = {
       // Get user ID from request (từ middleware auth)
       const userId = req.userId || req.user?._id;
 
+      const now = new Date();
       const caseData = {
         ...req.body,
         created_by: userId || undefined,
-        updated_by: userId || undefined
+        updated_by: userId || undefined,
+        createdAt: now, // Đảm bảo createdAt được set
+        updatedAt: now  // Đảm bảo updatedAt được set
       };
 
       const newCase = await Case.create(caseData);
@@ -151,11 +154,13 @@ const CaseController = {
         req.params.id,
         {
           ...req.body,
-          updated_by: userId || undefined
+          updated_by: userId || undefined,
+          updatedAt: new Date() // Đảm bảo updatedAt được cập nhật
         },
         {
           new: true,
-          runValidators: true
+          runValidators: true,
+          timestamps: true // Đảm bảo timestamps được xử lý
         }
       )
         .populate('created_by', 'name email')

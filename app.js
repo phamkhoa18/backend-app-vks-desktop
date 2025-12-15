@@ -11,6 +11,7 @@ import LawRouter from './routers/LawRouter.js';
 import CaseRouter from './routers/CaseRouter.js';
 import FormRouter from './routers/FormRouter.js';
 import OCRRouter from './routers/OCRRouter.js';
+import OCRResultRouter from './routers/OCRResultRouter.js';
 
 dotenv.config();
 // Initialize Express app
@@ -54,6 +55,7 @@ app.use('/api/v1/law', LawRouter);
 app.use('/api/v1/cases', CaseRouter);
 app.use('/api/v1/forms', FormRouter);
 app.use('/api/v1/ocr', OCRRouter);
+app.use('/api/v1/ocr-results', OCRResultRouter);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

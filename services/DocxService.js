@@ -73,6 +73,9 @@ class DocxService {
       'quyetdinhgiahantamgiam': path.join(__dirname, '../forms/dieutra/quyet_dinh_gia_han_tam_giam.docx'),
       'quyetdinhgiahandieutra': path.join(__dirname, '../forms/dieutra/quyet_dinh_gia_han_dieu_tra.docx'),
       'baocaogiahan_tam_giam': path.join(__dirname, '../forms/dieutra/QĐ_GIAHANTAMGIAM/bao_cao_gia_han_tam_giam.docx'),
+      'quyetdinhphechuanlenhtamgiam': path.join(__dirname, '../forms/dieutra/QĐ_PHECHUANLENHTAMGIAM/quyet_dinh_phe_chuan_lenh_tam_giam.docx'),
+      'quyetdinhphechuanquyetdinhkhoito': path.join(__dirname, '../forms/dieutra/QĐ_PHECHUANQUYETDINHKHOITO/quyet_dinh_phe_chuan_quyet_dinh_khoi_to.docx'),
+      'yeucaudieutra': path.join(__dirname, '../forms/dieutra/YC_DIEUTRA/yeu_cau_dieu_tra.docx'),
       // Có thể thêm các form khác ở đây
       // 'baocao': path.join(__dirname, '../forms/dieutra/bao_cao.docx'),
     };
@@ -155,6 +158,9 @@ class DocxService {
       'quyetdinhgiahantamgiam': path.join(__dirname, '../forms/dieutra/quyet_dinh_gia_han_tam_giam.docx'),
       'quyetdinhgiahandieutra': path.join(__dirname, '../forms/dieutra/quyet_dinh_gia_han_dieu_tra.docx'),
       'baocaogiahan_tam_giam': path.join(__dirname, '../forms/dieutra/QĐ_GIAHANTAMGIAM/bao_cao_gia_han_tam_giam.docx'),
+      'quyetdinhphechuanlenhtamgiam': path.join(__dirname, '../forms/dieutra/QĐ_PHECHUANLENHTAMGIAM/quyet_dinh_phe_chuan_lenh_tam_giam.docx'),
+      'quyetdinhphechuanquyetdinhkhoito': path.join(__dirname, '../forms/dieutra/QĐ_PHECHUANQUYETDINHKHOITO/quyet_dinh_phe_chuan_quyet_dinh_khoi_to.docx'),
+      'yeucaudieutra': path.join(__dirname, '../forms/dieutra/YC_DIEUTRA/yeu_cau_dieu_tra.docx'),
     };
 
     const available = [];

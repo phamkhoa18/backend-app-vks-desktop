@@ -3,7 +3,7 @@ import DocxService from '../services/DocxService.js';
 import htmlDocx from 'html-docx-js';
 import mammoth from 'mammoth';
 import PizZip from 'pizzip';
-import { DOMParser } from '@xmldom/xmldom';
+import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -486,7 +486,7 @@ const FormSubmissionController = {
         });
       }
 
-      // Xử lý HTML để đảm bảo font-size được giữ lại khi convert sang DOCX
+      // Xử lý HTML để đảm bảo TẤT CẢ formatting được giữ lại khi convert sang DOCX
       let processedHtml = html;
       
       // Hàm chuyển đổi px sang pt (1pt = 4/3px ở 96 DPI)
@@ -498,12 +498,15 @@ const FormSubmissionController = {
         return Math.round(ptValue * 2) / 2;
       };
 
-      // 1. Chuyển đổi tất cả font-size từ px sang pt trong inline styles
+      // 1. Chuyển đổi tất cả font-size từ px sang pt trong inline styles và GIỮ NGUYÊN 100% tất cả styles khác
+      // QUAN TRỌNG: Không được mất bất kỳ style nào (text-align, font-weight, font-style, color, background-color, etc.)
       processedHtml = processedHtml.replace(/style="([^"]*)"/gi, (match, styleContent) => {
+        // Chỉ chuyển font-size từ px sang pt, giữ nguyên TẤT CẢ styles khác
         let newStyle = styleContent.replace(/font-size:\s*(\d+(?:\.\d+)?)px/gi, (m, pxValue) => {
           const pt = pxToPt(pxValue);
           return `font-size: ${pt}pt`;
         });
+        // Đảm bảo style string không bị thay đổi ngoài font-size conversion
         return `style="${newStyle}"`;
       });
 
@@ -513,7 +516,251 @@ const FormSubmissionController = {
         return `font-size: ${pt}pt`;
       });
 
-      // 3. Đảm bảo body có font-size mặc định 14pt nếu chưa có
+      // 3. Đảm bảo các thẻ formatting (strong, em, u, b, i) được giữ nguyên
+      // html-docx-js sẽ tự động convert chúng, nhưng cần đảm bảo chúng có trong HTML
+      
+      // 4. Đảm bảo tables có đầy đủ formatting
+      processedHtml = processedHtml.replace(/<table([^>]*)>/gi, (match, attrs) => {
+        let styleObj = {};
+        
+        // Parse style hiện tại nếu có
+        if (attrs && attrs.includes('style=')) {
+          const styleMatch = attrs.match(/style="([^"]*)"/i);
+          if (styleMatch) {
+            const existingStyle = styleMatch[1];
+            existingStyle.split(';').forEach(style => {
+              const [key, value] = style.split(':').map(s => s.trim());
+              if (key && value) {
+                styleObj[key] = value;
+              }
+            });
+          }
+        }
+        
+        // Đảm bảo table có width 100%
+        if (!styleObj['width']) {
+          styleObj['width'] = '100%';
+        }
+        if (!styleObj['border-collapse']) {
+          styleObj['border-collapse'] = 'collapse';
+        }
+        
+        const mergedStyle = Object.entries(styleObj)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join('; ');
+        
+        if (attrs && attrs.includes('style=')) {
+          return match.replace(/style="([^"]*)"/i, `style="${mergedStyle}"`);
+        } else {
+          return `<table${attrs} style="${mergedStyle}">`;
+        }
+      });
+
+      // 3. Đảm bảo TẤT CẢ các elements có formatting được preserve
+      // Đặc biệt là text-align, font-weight, font-style, color, etc.
+      
+      // 3a. Đảm bảo các thẻ p có formatting được preserve
+      // Các thẻ p không có class "mau" sẽ có line-height: 1 và margin giảm xuống
+      processedHtml = processedHtml.replace(/<p([^>]*)>/gi, (match, attrs) => {
+        // Kiểm tra xem có class "mau" hoặc "mau-text" không
+        const hasMauClass = attrs && (attrs.includes('class="mau"') || attrs.includes("class='mau'") || attrs.includes('class="mau-text"') || attrs.includes("class='mau-text'") || attrs.match(/class\s*=\s*["'][^"']*\bmau\b[^"']*["']/i));
+        
+        // Nếu có class "mau" hoặc "mau-text", giữ nguyên (sẽ được xử lý ở bước sau)
+        if (hasMauClass) {
+          return match; // Giữ nguyên, sẽ được xử lý ở bước 3d và 3e
+        }
+        
+        // Nếu không có class "mau", xử lý: line-height: 1 và margin giảm xuống
+        let styleObj = {};
+        
+        // Parse style hiện tại nếu có
+        if (attrs && attrs.includes('style=')) {
+          const styleMatch = attrs.match(/style\s*=\s*["']([^"']*)["']/i);
+          if (styleMatch) {
+            const existingStyle = styleMatch[1];
+            existingStyle.split(';').forEach(style => {
+              const [key, value] = style.split(':').map(s => s.trim());
+              if (key && value) {
+                styleObj[key] = value;
+              }
+            });
+          }
+        }
+        
+        // Set line-height = 1 và margin giảm xuống (0.2rem)
+        styleObj['line-height'] = '1';
+        // Giảm margin xuống 0.2rem (thay vì mặc định 0.5em hoặc 1em)
+        if (!styleObj['margin-top'] && !styleObj['margin']) {
+          styleObj['margin-top'] = '0.2rem';
+        }
+        if (!styleObj['margin-bottom'] && !styleObj['margin']) {
+          styleObj['margin-bottom'] = '0.2rem';
+        }
+        // Nếu đã có margin, giữ nguyên nhưng đảm bảo không quá lớn
+        if (styleObj['margin'] && !styleObj['margin-top'] && !styleObj['margin-bottom']) {
+          // Nếu margin là giá trị lớn, giảm xuống
+          const marginValue = styleObj['margin'];
+          if (marginValue.includes('em') || marginValue.includes('px')) {
+            styleObj['margin-top'] = '0.2rem';
+            styleObj['margin-bottom'] = '0.2rem';
+            delete styleObj['margin'];
+          }
+        }
+        
+        // Đảm bảo có font-family và font-size
+        if (!styleObj['font-family']) {
+          styleObj['font-family'] = "'Times New Roman', Times, serif";
+        }
+        if (!styleObj['font-size']) {
+          styleObj['font-size'] = '14pt';
+        }
+        
+        // Merge style
+        const mergedStyle = Object.entries(styleObj)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join('; ');
+        
+        if (attrs && attrs.includes('style=')) {
+          return match.replace(/style\s*=\s*["'][^"']*["']/i, `style="${mergedStyle}"`);
+        } else {
+          return `<p${attrs} style="${mergedStyle}">`;
+        }
+      });
+      
+      // 3b. Đảm bảo các thẻ span có formatting được preserve và font Times New Roman
+      processedHtml = processedHtml.replace(/<span([^>]*)>/gi, (match, attrs) => {
+        // Nếu chưa có font-family, thêm Times New Roman
+        if (!attrs || !attrs.includes('font-family') && !attrs.includes('style=')) {
+          return `<span${attrs} style="font-family: 'Times New Roman', Times, serif;">`;
+        }
+        // Nếu có style nhưng chưa có font-family, thêm vào
+        if (attrs && attrs.includes('style=') && !attrs.includes('font-family')) {
+          return match.replace(/style\s*=\s*["']([^"']*)["']/i, (m, style) => {
+            return `style="${style}; font-family: 'Times New Roman', Times, serif;"`;
+          });
+        }
+        return match;
+      });
+      
+      // 3c. Đảm bảo các thẻ div, h1-h6 có font Times New Roman
+      processedHtml = processedHtml.replace(/<(div|h1|h2|h3|h4|h5|h6)([^>]*)>/gi, (match, tagName, attrs) => {
+        // Nếu chưa có font-family, thêm Times New Roman
+        if (!attrs || (!attrs.includes('font-family') && !attrs.includes('style='))) {
+          return `<${tagName}${attrs} style="font-family: 'Times New Roman', Times, serif;">`;
+        }
+        // Nếu có style nhưng chưa có font-family, thêm vào
+        if (attrs && attrs.includes('style=') && !attrs.includes('font-family')) {
+          return match.replace(/style\s*=\s*["']([^"']*)["']/i, (m, style) => {
+            return `style="${style}; font-family: 'Times New Roman', Times, serif;"`;
+          });
+        }
+        return match;
+      });
+      
+      // 3d. Xử lý đặc biệt cho các element có class "mau-text": line-height = 1.2 và sát nhau
+      // Tìm tất cả các tag có class chứa "mau-text" (class="mau-text" hoặc class="something mau-text something")
+      processedHtml = processedHtml.replace(/<([^>]*)\s+class\s*=\s*["']([^"']*\bmau-text\b[^"']*)["']([^>]*)>/gi, (match, beforeClass, classValue, afterClass) => {
+        let styleObj = {};
+        
+        // Lấy tất cả attributes (beforeClass + afterClass)
+        const allAttrs = (beforeClass || '') + (afterClass || '');
+        
+        // Parse style hiện tại nếu có
+        const styleMatch = allAttrs.match(/style\s*=\s*["']([^"']*)["']/i);
+        if (styleMatch) {
+          const existingStyle = styleMatch[1];
+          existingStyle.split(';').forEach(style => {
+            const [key, value] = style.split(':').map(s => s.trim());
+            if (key && value) {
+              styleObj[key] = value;
+            }
+          });
+        }
+        
+        // QUAN TRỌNG: Set line-height = 1.2 và loại bỏ margin/padding để sát nhau
+        styleObj['line-height'] = '1.2';
+        styleObj['margin'] = '0';
+        styleObj['padding'] = '0';
+        styleObj['margin-top'] = '0';
+        styleObj['margin-bottom'] = '0';
+        styleObj['padding-top'] = '0';
+        styleObj['padding-bottom'] = '0';
+        
+        // Đảm bảo có font-family Times New Roman
+        if (!styleObj['font-family']) {
+          styleObj['font-family'] = "'Times New Roman', Times, serif";
+        }
+        
+        // Merge style
+        const mergedStyle = Object.entries(styleObj)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join('; ');
+        
+        // Rebuild tag với style mới
+        if (styleMatch) {
+          // Thay thế style cũ bằng style mới
+          return match.replace(/style\s*=\s*["'][^"']*["']/i, `style="${mergedStyle}"`);
+        } else {
+          // Thêm style vào trước dấu >
+          return match.replace(/>/, ` style="${mergedStyle}">`);
+        }
+      });
+      
+      // 3e. Xử lý đặc biệt cho các element có class "mau": line-height = 1 và sát nhau
+      // Tìm tất cả các tag có class chứa "mau" nhưng KHÔNG có "mau-text" (để tránh conflict)
+      processedHtml = processedHtml.replace(/<([^>]*)\s+class\s*=\s*["']([^"']*\bmau\b[^"']*)["']([^>]*)>/gi, (match, beforeClass, classValue, afterClass) => {
+        // Bỏ qua nếu đã xử lý (có chứa "mau-text")
+        if (classValue.includes('mau-text')) {
+          return match;
+        }
+        
+        let styleObj = {};
+        
+        // Lấy tất cả attributes (beforeClass + afterClass)
+        const allAttrs = (beforeClass || '') + (afterClass || '');
+        
+        // Parse style hiện tại nếu có
+        const styleMatch = allAttrs.match(/style\s*=\s*["']([^"']*)["']/i);
+        if (styleMatch) {
+          const existingStyle = styleMatch[1];
+          existingStyle.split(';').forEach(style => {
+            const [key, value] = style.split(':').map(s => s.trim());
+            if (key && value) {
+              styleObj[key] = value;
+            }
+          });
+        }
+        
+        // QUAN TRỌNG: Set line-height = 1 và loại bỏ margin/padding để sát nhau
+        styleObj['line-height'] = '1';
+        styleObj['margin'] = '0';
+        styleObj['padding'] = '0';
+        styleObj['margin-top'] = '0';
+        styleObj['margin-bottom'] = '0';
+        styleObj['padding-top'] = '0';
+        styleObj['padding-bottom'] = '0';
+        
+        // Đảm bảo có font-family Times New Roman
+        if (!styleObj['font-family']) {
+          styleObj['font-family'] = "'Times New Roman', Times, serif";
+        }
+        
+        // Merge style
+        const mergedStyle = Object.entries(styleObj)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join('; ');
+        
+        // Rebuild tag với style mới
+        if (styleMatch) {
+          // Thay thế style cũ bằng style mới
+          return match.replace(/style\s*=\s*["'][^"']*["']/i, `style="${mergedStyle}"`);
+        } else {
+          // Thêm style vào trước dấu >
+          return match.replace(/>/, ` style="${mergedStyle}">`);
+        }
+      });
+      
+      // 3c. Đảm bảo body có font-size mặc định 14pt nếu chưa có
       // TinyMCE thường set font-size: 14pt trong content_style nhưng có thể bị mất khi convert
       if (processedHtml.includes('<body')) {
         processedHtml = processedHtml.replace(/<body([^>]*)>/i, (match, attrs) => {
@@ -551,42 +798,285 @@ const FormSubmissionController = {
         processedHtml = `<!DOCTYPE html>${processedHtml}`;
       }
 
-      // 5. Đảm bảo body có font-size nếu chưa có (sau khi đã wrap)
+      // 5. Đảm bảo body có font-size và width đúng cho A4 (sau khi đã wrap)
+      // Loại bỏ padding từ TinyMCE (40px 60px) vì margins sẽ được set trong DOCX
       processedHtml = processedHtml.replace(/<body([^>]*)>/i, (match, attrs) => {
+        let styleObj = {};
+        
+        // Parse style hiện tại nếu có
         if (attrs && attrs.includes('style=')) {
-          return match.replace(/style="([^"]*)"/i, (m, style) => {
-            if (!style.includes('font-size')) {
-              return `style="${style}; font-size: 14pt"`;
-            }
-            return m;
-          });
+          const styleMatch = attrs.match(/style="([^"]*)"/i);
+          if (styleMatch) {
+            const existingStyle = styleMatch[1];
+            existingStyle.split(';').forEach(style => {
+              const [key, value] = style.split(':').map(s => s.trim());
+              if (key && value) {
+                // Bỏ qua padding và margin từ TinyMCE, sẽ dùng margins từ DOCX
+                if (key !== 'padding' && key !== 'margin' && !key.startsWith('margin-') && !key.startsWith('padding-')) {
+                  styleObj[key] = value;
+                }
+              }
+            });
+          }
         }
-        return `<body${attrs} style="font-size: 14pt">`;
+        
+        // Đảm bảo có font-size và font-family
+        if (!styleObj['font-size']) {
+          styleObj['font-size'] = '14pt';
+        }
+        if (!styleObj['font-family']) {
+          styleObj['font-family'] = "'Times New Roman', Times, serif";
+        }
+        
+        // Set width cho A4: 21cm (A4 width)
+        // Margins sẽ được set trong DOCX (2.54cm mỗi bên)
+        styleObj['width'] = '21cm';
+        styleObj['max-width'] = '21cm';
+        styleObj['margin'] = '0';
+        styleObj['padding'] = '0';
+        styleObj['box-sizing'] = 'border-box';
+        
+        // Merge style
+        const mergedStyle = Object.entries(styleObj)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join('; ');
+        
+        if (attrs && attrs.includes('style=')) {
+          return match.replace(/style="([^"]*)"/i, `style="${mergedStyle}"`);
+        } else {
+          return `<body${attrs} style="${mergedStyle}">`;
+        }
       });
 
+      // 6. Thêm CSS để đảm bảo page breaks được giữ lại và page size A4
+      // Tìm thẻ </head> hoặc <body> để chèn style
+      if (processedHtml.includes('</head>')) {
+        processedHtml = processedHtml.replace('</head>', `
+        <style>
+          @page {
+            size: A4;
+            margin-top: 1.5cm;
+            margin-right: 2.54cm;
+            margin-bottom: 1.5cm;
+            margin-left: 2.54cm;
+          }
+          body {
+            width: 21cm;
+            min-height: 29.7cm;
+            margin: 0;
+            padding: 0;
+            font-family: "Times New Roman", Times, serif !important;
+            }
+          /* Mặc định tất cả elements dùng Times New Roman */
+          * {
+            font-family: "Times New Roman", Times, serif !important;
+          }
+          /* Giữ page breaks */
+          .page-break {
+            page-break-before: always;
+          }
+          [style*="page-break-before"] {
+            page-break-before: always !important;
+          }
+          [style*="page-break-after"] {
+            page-break-after: always !important;
+          }
+          /* Xử lý đặc biệt cho class "mau-text": line-height = 1.2 và sát nhau */
+          .mau-text,
+          [class*="mau-text"] {
+            line-height: 1.2 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+          }
+          /* Xử lý đặc biệt cho class "mau": line-height = 1 và sát nhau (không bao gồm mau-text) */
+          .mau:not(.mau-text),
+          [class*="mau"]:not([class*="mau-text"]) {
+            line-height: 1 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+        }
+        </style>
+        </head>`);
+      } else if (processedHtml.includes('<html>')) {
+        // Nếu không có head, thêm head với style
+        processedHtml = processedHtml.replace('<html>', `<html><head>
+        <style>
+          @page {
+            size: A4;
+            margin-top: 1.5cm;
+            margin-right: 2.54cm;
+            margin-bottom: 1.5cm;
+            margin-left: 2.54cm;
+          }
+          body {
+            width: 21cm;
+            min-height: 29.7cm;
+            margin: 0;
+            padding: 0;
+            font-family: "Times New Roman", Times, serif !important;
+          }
+          /* Mặc định tất cả elements dùng Times New Roman */
+          * {
+            font-family: "Times New Roman", Times, serif !important;
+          }
+          .page-break {
+            page-break-before: always;
+          }
+          [style*="page-break-before"] {
+            page-break-before: always !important;
+          }
+          [style*="page-break-after"] {
+            page-break-after: always !important;
+          }
+          /* Xử lý đặc biệt cho class "mau-text": line-height = 1.2 và sát nhau */
+          .mau-text,
+          [class*="mau-text"] {
+            line-height: 1.2 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+          }
+          /* Xử lý đặc biệt cho class "mau": line-height = 1 và sát nhau (không bao gồm mau-text) */
+          .mau:not(.mau-text),
+          [class*="mau"]:not([class*="mau-text"]) {
+            line-height: 1 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+          }
+        </style>
+        </head>`);
+      }
+
+      // Log HTML trước khi convert để debug
+      console.log('=== HTML trước khi convert sang DOCX ===');
+      console.log('HTML length:', processedHtml.length);
+      console.log('HTML preview (first 1000 chars):', processedHtml.substring(0, 1000));
+
       // Convert HTML sang DOCX với options để đảm bảo formatting được giữ lại
+      // html-docx-js sẽ tự động preserve inline styles từ HTML
+      // Quan trọng: Đảm bảo HTML có đầy đủ inline styles cho tất cả elements
       const docxBlob = await htmlDocx.asBlob(processedHtml, {
         orientation: 'portrait',
         margins: {
-          top: 1440,    // 1 inch = 1440 twips
-          right: 1440,
-          bottom: 1440,
-          left: 1440
+          top: 850,     // 1.5cm = 850 twips (giảm từ 2.54cm)
+          right: 1440,  // 1 inch = 1440 twips (2.54cm)
+          bottom: 850, // 1.5cm = 850 twips (giảm từ 2.54cm)
+          left: 1440    // 1 inch = 1440 twips (2.54cm)
         }
       });
 
       // Convert Blob sang Buffer
-      const arrayBuffer = await docxBlob.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
+      let arrayBuffer = await docxBlob.arrayBuffer();
+      let buffer = Buffer.from(arrayBuffer);
+      
+      // QUAN TRỌNG: Xử lý DOCX XML để đảm bảo TẤT CẢ formatting được preserve
+      // html-docx-js có thể không preserve tốt một số formatting, nên cần xử lý thêm
+      console.log('=== Xử lý DOCX XML để preserve formatting ===');
+
+      // Xử lý DOCX để đảm bảo page size A4 được set đúng trong document.xml
+      try {
+        const zip = new PizZip(buffer);
+        
+        // Đọc document.xml để set page size trong section properties
+        if (zip.files['word/document.xml']) {
+          const documentXml = zip.files['word/document.xml'].asText();
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(documentXml, 'text/xml');
+          
+          // Tìm tất cả sectPr (section properties) trong document
+          const sectPrs = doc.getElementsByTagName('w:sectPr');
+          
+          for (let i = 0; i < sectPrs.length; i++) {
+            const sectPr = sectPrs[i];
+            
+            // Set page size A4: 21cm x 29.7cm = 11906 twips x 16838 twips
+            // Luôn đảm bảo page size là A4, kể cả khi đã có
+            let pgSz = sectPr.getElementsByTagName('w:pgSz')[0];
+            if (!pgSz) {
+              pgSz = doc.createElement('w:pgSz');
+              // Chèn vào đầu sectPr
+              if (sectPr.firstChild) {
+                sectPr.insertBefore(pgSz, sectPr.firstChild);
+              } else {
+                sectPr.appendChild(pgSz);
+              }
+            }
+            // Luôn set lại page size để đảm bảo là A4
+            pgSz.setAttribute('w:w', '11906');  // A4 width: 21cm = 11906 twips
+            pgSz.setAttribute('w:h', '16838');  // A4 height: 29.7cm = 16838 twips
+            pgSz.setAttribute('w:orient', 'portrait');
+
+            // Set margins - top và bottom giảm xuống 1.5cm, left và right giữ 2.54cm
+            let pgMar = sectPr.getElementsByTagName('w:pgMar')[0];
+            if (!pgMar) {
+              pgMar = doc.createElement('w:pgMar');
+              // Chèn sau pgSz
+              if (pgSz.nextSibling) {
+                sectPr.insertBefore(pgMar, pgSz.nextSibling);
+              } else {
+                sectPr.appendChild(pgMar);
+              }
+            }
+            // Luôn set lại margins để đảm bảo đúng
+            pgMar.setAttribute('w:top', '850');      // 1.5cm = 850 twips (giảm từ 2.54cm)
+            pgMar.setAttribute('w:right', '1440');    // 1 inch = 2.54cm
+            pgMar.setAttribute('w:bottom', '850');    // 1.5cm = 850 twips (giảm từ 2.54cm)
+            pgMar.setAttribute('w:left', '1440');    // 1 inch = 2.54cm
+            pgMar.setAttribute('w:header', '708');    // 0.5 inch
+            pgMar.setAttribute('w:footer', '708');   // 0.5 inch
+            pgMar.setAttribute('w:gutter', '0');
+          }
+
+          // Lưu lại document.xml
+          const serializer = new XMLSerializer();
+          const updatedDocumentXml = serializer.serializeToString(doc);
+          zip.file('word/document.xml', updatedDocumentXml);
+
+          // Generate lại buffer
+          buffer = zip.generate({
+            type: 'nodebuffer',
+            compression: 'DEFLATE'
+          });
+        }
+      } catch (pageSizeError) {
+        // Nếu có lỗi khi xử lý page size, vẫn trả về DOCX đã tạo
+        console.warn('Warning: Could not set page size in DOCX:', pageSizeError.message);
+      }
 
       // Tạo tên file
-      const finalFileName = fileName || `document_${Date.now()}.docx`;
+      let finalFileName = fileName || `document_${Date.now()}.docx`;
+      
+      // Sanitize tên file: chỉ loại bỏ ký tự thực sự không hợp lệ cho tên file
+      // Giữ nguyên Unicode (tiếng Việt có dấu) - sẽ được encode trong header
+      // Chỉ loại bỏ: < > : " / \ | ? * và control characters
+      finalFileName = finalFileName.replace(/[<>:"/\\|?*\x00-\x1F\x7F]/g, '_'); // Thay thế ký tự không hợp lệ
+      finalFileName = finalFileName.replace(/[\r\n\t]/g, '_'); // Thay thế line breaks và tabs
+      finalFileName = finalFileName.replace(/^[._\s]+|[._\s]+$/g, ''); // Loại bỏ ký tự đặc biệt và spaces ở đầu/cuối
+      finalFileName = finalFileName.replace(/\.{2,}/g, '.'); // Loại bỏ nhiều dấu chấm liên tiếp
+      if (!finalFileName || finalFileName.length === 0) {
+        finalFileName = `document_${Date.now()}.docx`;
+      }
 
       // Set headers để download file
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
       res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(finalFileName)}"`);
       res.setHeader('Content-Length', buffer.length);
-      res.setHeader('X-File-Name', finalFileName);
+      res.setHeader('X-File-Name', encodeURIComponent(finalFileName));
 
       // Gửi file về client
       res.send(buffer);
@@ -622,6 +1112,9 @@ const FormSubmissionController = {
         'quyetdinhgiahantamgiam': path.join(__dirname, '../forms/dieutra/quyet_dinh_gia_han_tam_giam.docx'),
         'quyetdinhgiahandieutra': path.join(__dirname, '../forms/dieutra/quyet_dinh_gia_han_dieu_tra.docx'),
         'baocaogiahan_tam_giam': path.join(__dirname, '../forms/dieutra/QĐ_GIAHANTAMGIAM/bao_cao_gia_han_tam_giam.docx'),
+        'quyetdinhphechuanlenhtamgiam': path.join(__dirname, '../forms/dieutra/QĐ_PHECHUANLENHTAMGIAM/quyet_dinh_phe_chuan_lenh_tam_giam.docx'),
+        'quyetdinhphechuanquyetdinhkhoito': path.join(__dirname, '../forms/dieutra/QĐ_PHECHUANQUYETDINHKHOITO/quyet_dinh_phe_chuan_quyet_dinh_khoi_to.docx'),
+        'yeucaudieutra': path.join(__dirname, '../forms/dieutra/YC_DIEUTRA/yeu_cau_dieu_tra.docx'),
       };
 
       const templatePath = templateMap[position];
@@ -852,6 +1345,13 @@ const FormSubmissionController = {
         'quyetdinhgiahantamgiam': path.join(__dirname, '../forms/dieutra/quyet_dinh_gia_han_tam_giam.html'),
         'quyetdinhgiahandieutra': path.join(__dirname, '../forms/dieutra/quyet_dinh_gia_han_dieu_tra.html'),
         'baocaogiahan_tam_giam': path.join(__dirname, '../forms/dieutra/QĐ_GIAHANTAMGIAM/bao_cao_gia_han_tam_giam.html'),
+        'quyetdinhphechuanlenhtamgiam': path.join(__dirname, '../forms/dieutra/QĐ_PHECHUANLENHTAMGIAM/quyet_dinh_phe_chuan_lenh_tam_giam.html'),
+        'quyetdinhphechuanquyetdinhkhoito': path.join(__dirname, '../forms/dieutra/QĐ_PHECHUANQUYETDINHKHOITO/quyet_dinh_phe_chuan_quyet_dinh_khoi_to.html'),
+        'baocaophechuanquyetdinhkhoitobican': path.join(__dirname, '../forms/dieutra/QĐ_PHECHUANQUYETDINHKHOITO/bao_cao_phe_chuan_quyet_dinh_khoi_to_bi_can.html'),
+        'yeucaudieutra': path.join(__dirname, '../forms/dieutra/YC_DIEUTRA/yeu_cau_dieu_tra.html'),
+        'thongbao_bicantamgiam': path.join(__dirname, '../forms/truyto/THONGBAO_BICANTAMGIAM/thongbao_bicantamgiam.html'),
+        'lenhtamgiam_truyto': path.join(__dirname, '../forms/truyto/LENHTAMGIAM_TRUYTO/lenhtamgiam_truyto.html'),
+        'baocao_dexuatlenhtamgiam': path.join(__dirname, '../forms/truyto/LENHTAMGIAM_TRUYTO/baocao_dexuatlenhtamgiam.html'),
       };
 
       const templatePath = templateMap[position];

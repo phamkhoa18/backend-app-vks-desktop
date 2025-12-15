@@ -10,6 +10,7 @@ const UserSchema = new mongoose.Schema({
     chucdanh: { type: String , default: ''},
     captren: { type: String , default: ''},
     donvi: { type: String , default: ''},
+    ten_day_du_vks: { type: String , default: ''},
     donvibaocao: { type: String , default: ''},
     phovientruong: [{ type: String }],
     vientruong: { type: String , default: ''},

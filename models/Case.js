@@ -31,18 +31,36 @@ const VuAnSchema = new mongoose.Schema({
   dia_diem_vu_an: { type: String }
 }, { _id: false });
 
+const ConRuotSchema = new mongoose.Schema({
+  ho_ten: { type: String },
+  nam_sinh: { type: String }
+}, { _id: false });
+
+const TienAnSchema = new mongoose.Schema({
+  so_luong: { type: Number },
+  ngay: { type: String },
+  co_quan: { type: String },
+  hinh_phat: { type: String },
+  toi_danh: { type: [String], default: [] },
+  thoi_gian_chap_hanh: { type: String }
+}, { _id: false });
+
 const BiCanSchema = new mongoose.Schema({
   ho_ten: { type: String, required: true },
+  ten_goi_khac: { type: String },
   ngay_sinh: { type: Date },
   gioi_tinh: { type: String, default: 'Nam' },
   noi_sinh: { type: String },
   thuong_tru: { type: String },
   tam_tru: { type: String },
   nghe_nghiep: { type: String },
+  trinh_do_hoc_van: { type: String },
   quoc_tich: { type: String, default: 'Việt Nam' },
   dan_toc: { type: String, default: 'Kinh' },
   ton_giao: { type: String },
   cccd: { type: String },
+  ngay_cap_cccd: { type: Date },
+  noi_cap_cccd: { type: String },
   tinh_trang_ngan_chan: {
     type: String,
     enum: ['tu_do', 'tam_giu', 'tam_giam', 'cam_di_khoi_noi_cu_tru'],
@@ -50,7 +68,25 @@ const BiCanSchema = new mongoose.Schema({
   },
   thoi_diem_bat_giu: { type: Date },
   toi_danh_ca_nhan: [{ type: String }],
-  ghi_chu: { type: String }
+  dieu_khoan_diem: [DieuKhoanDiemSchema],
+  ghi_chu: { type: String },
+  chung_cu: { type: String },
+  // Thông tin gia đình
+  ho_ten_cha: { type: String },
+  nam_sinh_cha: { type: String },
+  cha_da_mat: { type: Boolean, default: false },
+  ho_ten_me: { type: String },
+  nam_sinh_me: { type: String },
+  me_da_mat: { type: Boolean, default: false },
+  vo_chong: {
+    ho_ten: { type: String },
+    nam_sinh: { type: String },
+    da_mat: { type: Boolean, default: false },
+    loai: { type: String, enum: ['vo', 'chong'], default: 'vo' }
+  },
+  con_ruot: [ConRuotSchema],
+  tien_su: { type: String },
+  tien_an: [TienAnSchema]
 }, { _id: false });
 
 const QDKhoiToBiCanSchema = new mongoose.Schema({
