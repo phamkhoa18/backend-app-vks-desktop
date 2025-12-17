@@ -13,8 +13,20 @@ const CaseController = {
       const search = req.query.search || '';
       const trang_thai = req.query.trang_thai;
 
-      // Build query
-      const query = {};
+      // Get user ID from request (set by auth middleware)
+      const userId = req.userId || req.user?._id;
+      
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized: User not authenticated'
+        });
+      }
+
+      // Build query - chỉ lấy vụ án của user đang đăng nhập
+      const query = {
+        created_by: userId
+      };
       
       if (search) {
         query.$or = [
@@ -58,9 +70,20 @@ const CaseController = {
 
   /**
    * Lấy vụ án theo ID
+   * Chỉ cho phép xem vụ án của user đang đăng nhập
    */
   getCaseById: async (req, res) => {
     try {
+      // Get user ID from request (set by auth middleware)
+      const userId = req.userId || req.user?._id;
+      
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized: User not authenticated'
+        });
+      }
+
       const caseData = await Case.findById(req.params.id)
         .populate('created_by')
         .populate('updated_by', 'name email');
@@ -69,6 +92,14 @@ const CaseController = {
         return res.status(404).json({
           success: false,
           message: 'Case not found'
+        });
+      }
+
+      // Kiểm tra xem vụ án có thuộc về user đang đăng nhập không
+      if (caseData.created_by && caseData.created_by._id.toString() !== userId.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden: You do not have permission to access this case'
         });
       }
 
@@ -149,6 +180,30 @@ const CaseController = {
     try {
       // Get user ID from request (từ middleware auth)
       const userId = req.userId || req.user?._id;
+      
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized: User not authenticated'
+        });
+      }
+
+      // Kiểm tra xem vụ án có tồn tại và thuộc về user không
+      const existingCase = await Case.findById(req.params.id);
+      if (!existingCase) {
+        return res.status(404).json({
+          success: false,
+          message: 'Case not found'
+        });
+      }
+
+      // Kiểm tra quyền truy cập: chỉ cho phép update vụ án của chính user
+      if (existingCase.created_by && existingCase.created_by.toString() !== userId.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden: You do not have permission to update this case'
+        });
+      }
 
       const updatedCase = await Case.findByIdAndUpdate(
         req.params.id,
@@ -191,6 +246,33 @@ const CaseController = {
    */
   deleteCase: async (req, res) => {
     try {
+      // Get user ID from request (từ middleware auth)
+      const userId = req.userId || req.user?._id;
+      
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized: User not authenticated'
+        });
+      }
+
+      // Kiểm tra xem vụ án có tồn tại và thuộc về user không
+      const existingCase = await Case.findById(req.params.id);
+      if (!existingCase) {
+        return res.status(404).json({
+          success: false,
+          message: 'Case not found'
+        });
+      }
+
+      // Kiểm tra quyền truy cập: chỉ cho phép delete vụ án của chính user
+      if (existingCase.created_by && existingCase.created_by.toString() !== userId.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden: You do not have permission to delete this case'
+        });
+      }
+
       const deletedCase = await Case.findByIdAndDelete(req.params.id);
 
       if (!deletedCase) {
