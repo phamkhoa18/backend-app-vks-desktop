@@ -1352,6 +1352,7 @@ const FormSubmissionController = {
         'thongbao_bicantamgiam': path.join(__dirname, '../forms/truyto/THONGBAO_BICANTAMGIAM/thongbao_bicantamgiam.html'),
         'lenhtamgiam_truyto': path.join(__dirname, '../forms/truyto/LENHTAMGIAM_TRUYTO/lenhtamgiam_truyto.html'),
         'baocao_dexuatlenhtamgiam': path.join(__dirname, '../forms/truyto/LENHTAMGIAM_TRUYTO/baocao_dexuatlenhtamgiam.html'),
+        'caotrang': path.join(__dirname, '../forms/truyto/CAOTRANG/caotrang.html'),
       };
 
       const templatePath = templateMap[position];
